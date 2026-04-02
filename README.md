@@ -10,6 +10,17 @@ Encryption (LUKS/LVM) and UEFI Secure Boot using custom keys.
 | `debian-fde-installer.sh` | Automated FDE installer for Debian, Kali, PureOS       |
 | `chroot.sh`               | Mount and chroot into an installed system for recovery |
 
+### Usage
+1. Boot from a Debian Live USB as root.
+2. Run the installer script:
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/debian-fde-installer.sh | bash
+   ```
+   or
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/chroot.sh | bash
+   ```
+
 ## debian-fde-installer.sh
 
 Installs a Debian-based system with:
