@@ -21,7 +21,7 @@ Installs a Debian-based system with:
 - GRUB password protection and auto-signing hooks on kernel updates
 - fscrypt-ready ext4 root, NetworkManager, PipeWire/PulseAudio, UFW
 
-## Security layer coverage
+### Security layer coverage
 
 | # | Layer | Mechanism | Protects against |
 |---|---|---|---|
@@ -34,7 +34,7 @@ Installs a Debian-based system with:
 | 7 | **Home directory** | fscrypt (ext4 native encryption), PAM-integrated auto-unlock | Per-user data exposure even if root volume is accessed |
 | 8 | **Cold boot / memory** | Kernel parameter `init_on_free=1` (zeroes freed pages and slab objects) | Key material lingering in RAM after process exit or reboot |
 
-**NOTE** IT IS VERY IMPORTANT TO SET A BIOS/FIRWARE PASSWORD, AS THE PRIMARY ATTACK SURFACE TO THIS CONFIGURATION IS PHYSICAL ACCESS TO THE MACHINE TO DISABLE SECURE BOOT OR RESET THE FIRMWARE TO ALLOW MALICIOUS BOOTLOADERS.
+**NOTE:** IT IS VERY IMPORTANT TO SET A BIOS/FIRWARE PASSWORD, AS THE PRIMARY ATTACK SURFACE TO THIS CONFIGURATION IS PHYSICAL ACCESS TO THE MACHINE TO DISABLE SECURE BOOT OR RESET THE FIRMWARE TO ALLOW MALICIOUS BOOTLOADERS.
 
 **Requirements:** UEFI system, booted from a Debian Live USB as root.
 
