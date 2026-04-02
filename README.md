@@ -21,6 +21,21 @@ Installs a Debian-based system with:
 - GRUB password protection and auto-signing hooks on kernel updates
 - fscrypt-ready ext4 root, NetworkManager, PipeWire/PulseAudio, UFW
 
+## Security layer coverage
+
+| # | Layer | Mechanism | Protects against |
+|---|---|---|---|
+| 1 | **Firmware** | BIOS/UEFI password | Unauthorized changes to boot order, disabling Secure Boot, or booting from external media |
+| 2 | **Secure Boot** | Custom PK/KEK/db keys; all EFI executables signature-verified | Unsigned or tampered bootloader running before the OS |
+| 3 | **ESP** (`/dev/sda1`) | `grub.cfg` embedded inside signed EFI binary (`grub-mkstandalone`); no separate config file on the unencrypted partition | Editing boot parameters without breaking the Secure Boot signature |
+| 4 | **Bootloader** | GRUB password (PBKDF2 via `grub-mkpasswd-pbkdf2`) | Interactive attacks: editing menu entries, accessing GRUB shell |
+| 5 | **Full disk encryption** | LUKS (`/dev/sda2`); kernel + initramfs live inside the encrypted volume | Data at rest; kernel/initramfs tampering without the passphrase |
+| 6 | **Volume management** | LVM root + swap both inside LUKS | Swap leaking plaintext memory pages to disk |
+| 7 | **Home directory** | fscrypt (ext4 native encryption), PAM-integrated auto-unlock | Per-user data exposure even if root volume is accessed |
+| 8 | **Cold boot / memory** | Kernel parameter `init_on_free=1` (zeroes freed pages and slab objects) | Key material lingering in RAM after process exit or reboot |
+
+**NOTE** IT IS VERY IMPORTANT TO SET A BIOS/FIRWARE PASSWORD, AS THE PRIMARY ATTACK SURFACE TO THIS CONFIGURATION IS PHYSICAL ACCESS TO THE MACHINE TO DISABLE SECURE BOOT OR RESET THE FIRMWARE TO ALLOW MALICIOUS BOOTLOADERS.
+
 **Requirements:** UEFI system, booted from a Debian Live USB as root.
 
 ```bash
