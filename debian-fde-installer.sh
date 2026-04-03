@@ -2043,8 +2043,13 @@ echo "Strengthening password hashing (1,000,000 rounds)..."
 if [ -f /etc/pam.d/passwd ]; then
     # Check if rounds is already configured
     if ! grep -q "rounds=" /etc/pam.d/passwd 2>/dev/null; then
-        # Add rounds=1000000 to pam_unix.so line
-        sed -i 's/\(password.*pam_unix.so.*\)/\1 rounds=1000000/' /etc/pam.d/passwd
+        if grep -q "pam_unix.so" /etc/pam.d/passwd 2>/dev/null; then
+            # Append rounds=1000000 to the existing pam_unix.so line
+            sed -i 's/\(password.*pam_unix.so.*\)/\1 rounds=1000000/' /etc/pam.d/passwd
+        else
+            # pam_unix.so line absent — insert the complete line
+            printf 'password\trequired\tpam_unix.so sha512 shadow nullok rounds=1000000\n' >> /etc/pam.d/passwd
+        fi
         echo "  ✓ PAM password hashing set to 1,000,000 rounds (~1 second)"
     else
         echo "  ✓ PAM password hashing already configured"
