@@ -1700,6 +1700,37 @@ sbsign --key "${KEYS_LOCATION}/db.key" \
 rm "/boot/efi/EFI/${EFI_BOOT_ID}/grubx64_generated.efi"
 
 echo "Signed GRUB binary generated"
+
+# Sign NVIDIA kernel modules if available
+# DKMS-built NVIDIA modules must be signed with custom Secure Boot keys;
+# distro-provided NVIDIA signing keys are not trusted in our custom db.
+inst_kern=$(uname -r)
+SIGN_FILE="/usr/src/linux-headers-${inst_kern}/scripts/sign-file"
+if [[ -x "${SIGN_FILE}" && -f "${KEYS_LOCATION}/db.der" ]]; then
+    echo "Checking for NVIDIA kernel modules to sign..."
+    nvidia_signed=0
+    for mod in nvidia nvidia-modeset nvidia-uvm nvidia-drm nvidia-peermem; do
+        mod_path=$(modinfo -k "${inst_kern}" -n "${mod}" 2>/dev/null || true)
+        if [[ -n "${mod_path}" && -f "${mod_path}" ]]; then
+            echo "Signing NVIDIA module: ${mod_path}..."
+            "${SIGN_FILE}" sha256 "${KEYS_LOCATION}/db.key" "${KEYS_LOCATION}/db.der" "${mod_path}"
+            echo "✓ Signed: ${mod_path}"
+            nvidia_signed=$((nvidia_signed + 1))
+        fi
+    done
+    if [[ "${nvidia_signed}" -gt 0 ]]; then
+        echo "✓ ${nvidia_signed} NVIDIA module(s) signed successfully"
+    else
+        echo "INFO: No NVIDIA modules found for kernel ${inst_kern}, skipping"
+    fi
+else
+    if [[ ! -x "${SIGN_FILE}" ]]; then
+        echo "INFO: sign-file not found at ${SIGN_FILE}, skipping NVIDIA module signing"
+    fi
+    if [[ ! -f "${KEYS_LOCATION}/db.der" ]]; then
+        echo "WARNING: ${KEYS_LOCATION}/db.der not found, cannot sign NVIDIA modules" >&2
+    fi
+fi
 GRUB_GEN_EOF
     
     chmod +x "${MOUNT_POINT}/tmp/generate_grub.sh"
@@ -1798,6 +1829,36 @@ if [[ -f "${VMLINUZ}" ]]; then
     echo "✓ Kernel image signed: ${VMLINUZ}"
 else
     echo "WARNING: kernel image not found at ${VMLINUZ}" >&2
+fi
+
+# Sign NVIDIA kernel modules if available
+# DKMS-built NVIDIA modules must be signed with custom Secure Boot keys;
+# distro-provided NVIDIA signing keys are not trusted in our custom db.
+SIGN_FILE="/usr/src/linux-headers-${inst_kern}/scripts/sign-file"
+if [[ -x "${SIGN_FILE}" && -f "${KEYS_LOCATION}/db.der" ]]; then
+    echo "Checking for NVIDIA kernel modules to sign..."
+    nvidia_signed=0
+    for mod in nvidia nvidia-modeset nvidia-uvm nvidia-drm nvidia-peermem; do
+        mod_path=$(modinfo -k "${inst_kern}" -n "${mod}" 2>/dev/null || true)
+        if [[ -n "${mod_path}" && -f "${mod_path}" ]]; then
+            echo "Signing NVIDIA module: ${mod_path}..."
+            "${SIGN_FILE}" sha256 "${KEYS_LOCATION}/db.key" "${KEYS_LOCATION}/db.der" "${mod_path}"
+            echo "✓ Signed: ${mod_path}"
+            nvidia_signed=$((nvidia_signed + 1))
+        fi
+    done
+    if [[ "${nvidia_signed}" -gt 0 ]]; then
+        echo "✓ ${nvidia_signed} NVIDIA module(s) signed successfully"
+    else
+        echo "INFO: No NVIDIA modules found for kernel ${inst_kern}, skipping"
+    fi
+else
+    if [[ ! -x "${SIGN_FILE}" ]]; then
+        echo "INFO: sign-file not found at ${SIGN_FILE}, skipping NVIDIA module signing"
+    fi
+    if [[ ! -f "${KEYS_LOCATION}/db.der" ]]; then
+        echo "WARNING: ${KEYS_LOCATION}/db.der not found, cannot sign NVIDIA modules" >&2
+    fi
 fi
 
 exit 0
