@@ -16,6 +16,9 @@
 # - Optional desktop environment installation (GNOME, KDE, XFCE, etc.)
 # - TPM 2.0 detection: reports TPM version and availability
 
+# Wrap the entire script in a function so that bash reads it fully from stdin
+# before executing. This allows `curl | bash` to work with interactive prompts.
+_entry() {
 set -e
 
 # Color codes for output
@@ -2637,3 +2640,6 @@ trap cleanup EXIT
 
 # Run main function
 main
+}
+
+_entry "$@" </dev/tty

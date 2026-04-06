@@ -3,6 +3,9 @@
 # Chroot Helper Script
 # Helps mount and chroot into an installed Linux system
 
+# Wrap the entire script in a function so that bash reads it fully from stdin
+# before executing. This allows `curl | bash` to work with interactive prompts.
+_entry() {
 set -e
 
 # Colors for output
@@ -426,3 +429,6 @@ trap 'print_error "Script interrupted"; exit 1' INT TERM
 
 # Run main function
 main
+}
+
+_entry "$@" </dev/tty

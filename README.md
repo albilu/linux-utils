@@ -15,11 +15,11 @@ Encryption (LUKS/LVM) and UEFI Secure Boot using custom keys.
 1. Boot from a Debian Live USB as root.
 2. Run the installer script:
     ```bash
-    sudo bash <(curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/debian-fde-installer.sh)
+    curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/debian-fde-installer.sh | sudo bash
     ```
     or
     ```bash
-    sudo bash <(curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/chroot.sh)
+    curl -sSL https://raw.githubusercontent.com/albilu/linux-utils/refs/heads/master/chroot.sh | sudo bash
     ```
 
 ## debian-fde-installer.sh
