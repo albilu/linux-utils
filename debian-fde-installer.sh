@@ -18,12 +18,6 @@
 
 set -e
 
-# When piped via `curl | bash`, stdin is the pipe and read prompts get EOF.
-# Re-open stdin from the controlling terminal so all interactive prompts work.
-if [[ ! -t 0 ]]; then
-    exec </dev/tty
-fi
-
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
