@@ -19,6 +19,9 @@
 # Wrap the entire script in a function so that bash reads it fully from stdin
 # before executing. This allows `curl | bash` to work with interactive prompts.
 _entry() {
+# At this point bash has fully read the function body from stdin (the pipe),
+# so it is safe to permanently redirect stdin to the real terminal.
+exec </dev/tty
 set -e
 
 # Color codes for output
@@ -2642,4 +2645,4 @@ trap cleanup EXIT
 main
 }
 
-_entry "$@" </dev/tty
+_entry "$@"
