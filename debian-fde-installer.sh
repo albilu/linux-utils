@@ -2576,7 +2576,7 @@ main() {
     check_root
     check_uefi
     check_secure_boot
-    check_tpm_support
+    check_tpm_support || true
     check_dependencies
     
     select_disk
