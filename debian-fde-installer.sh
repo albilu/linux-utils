@@ -1102,6 +1102,7 @@ elif [[ "\$DISTRO_NAME" == "debian" ]]; then
         pipewire-pulse \
         wireplumber \
         pulseaudio-utils \
+        firmware-iwlwifi \
         pavucontrol
 elif [[ "\$DISTRO_NAME" == "kali" ]]; then
     # Kali with firmware and Pipewire
@@ -1192,6 +1193,30 @@ echo "GRUB password configured successfully"
 # Patching the template ensures this survives kernel updates / grub-mkconfig reruns.
 echo "Configuring unrestricted boot for menu entries..."
 sed -i 's/^CLASS="--class gnu-linux /CLASS="--class gnu-linux --unrestricted /' /etc/grub.d/10_linux
+
+# Disable GRUB-level kernel signature verification.
+# grub-efi-amd64-signed causes GRUB 2.12+ to set check_signatures=check when
+# UEFI Secure Boot is active (detected in GRUB's EFI core, independently of
+# the --disable-shim-lock flag used at build time).  With --disable-shim-lock
+# the shim_lock verifier module is absent, so no verifier handles the kernel
+# file, producing the fatal boot error:
+#   "verification requested but nobody cares: /boot/vmlinuz-*"
+# Boot-chain security is maintained by:
+#   1. UEFI Secure Boot verifying the PE-signed GRUB binary (custom db key)
+#   2. LUKS full-disk encryption protecting kernel/initrd from offline tampering
+# Numbering 00_ ensures this script outputs before all other grub.d scripts so
+# the setting is in effect when kernel entries are processed.
+cat > /etc/grub.d/00_no_check_signatures <<'NOSIG_EOF'
+#!/bin/sh
+set -e
+# Emit check_signatures=no at the top of grub.cfg.
+# See installer comments for rationale.
+cat << 'EOF'
+set check_signatures=no
+EOF
+NOSIG_EOF
+chmod +x /etc/grub.d/00_no_check_signatures
+echo "GRUB kernel signature checking disabled (check_signatures=no)"
 
 # Generate GRUB config (entries are already --unrestricted from the patched template)
 grub-mkconfig -o /boot/grub/grub.cfg
