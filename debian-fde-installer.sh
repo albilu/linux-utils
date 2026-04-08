@@ -1676,6 +1676,8 @@ generate_signed_grub() {
 set -e
 # EFI_BOOT_ID injected at install time (debian/kali/pureos-specific path)
 EFI_BOOT_ID="${EFI_BOOT_ID}"
+# TPM availability detected at install time
+TPM_AVAILABLE="${TPM_AVAILABLE}"
 GRUB_GEN_HEADER
     cat >> "${MOUNT_POINT}/tmp/generate_grub.sh" <<'GRUB_GEN_EOF'
 
@@ -1696,6 +1698,30 @@ grub-mkstandalone \
     --disable-shim-lock \
     -o "/boot/efi/EFI/${EFI_BOOT_ID}/grubx64_generated.efi" \
     "boot/grub/grub.cfg=/boot/grub/grub.cfg"
+
+# Conditionally neutralise GRUB's internal Secure Boot enforcement.
+# When a TPM is present, GRUB's tpm verifier module registers as a
+# pass-through verifier that satisfies lockdown_verifier's DEFER_AUTH,
+# so the boot chain works without any patching.
+# Without a TPM, no verifier satisfies the deferred auth and GRUB fails
+# with: "verification requested but nobody cares: /boot/vmlinuz-*"
+# In that case, binary-patch "SecureBoot" -> "SecureB00t" so that
+# grub_efi_get_secureboot() never detects Secure Boot and lockdown_verifier
+# is never registered.  Security is NOT degraded because:
+#   1. UEFI firmware still verifies the PE-signed GRUB binary (custom db key)
+#   2. /boot lives on LUKS-encrypted volume, immune to offline tampering
+#   3. Kernel images are PE-signed with our db key (GRUB 2.12 requirement)
+#   4. GRUB console is password-protected (superusers in grub.cfg)
+#   5. Linux kernel lockdown LSM is UNAFFECTED — the kernel reads the
+#      SecureBoot EFI variable directly from firmware, not from GRUB
+# Ref: https://wejn.org/2021/09/fixing-grub-verification-requested-nobody-cares/
+#      https://wejn.org/2024/08/grub-2.12-broke-my-secureboot-again/
+if [[ "$TPM_AVAILABLE" != "yes" ]]; then
+    echo "No TPM detected — patching GRUB Secure Boot variable..."
+    sed -i 's/SecureBoot/SecureB00t/' "/boot/efi/EFI/${EFI_BOOT_ID}/grubx64_generated.efi"
+else
+    echo "TPM detected — skipping SecureBoot patch (tpm verifier handles verification)"
+fi
 
 # Sign the binary
 sbsign --key "${KEYS_LOCATION}/db.key" \
@@ -1808,6 +1834,17 @@ grub-mkstandalone \
     --disable-shim-lock \
     -o "/boot/efi/EFI/${EFI_BOOT_ID}/grubx64_generated.efi" \
     "boot/grub/grub.cfg=/boot/grub/grub.cfg"
+
+# Neutralise GRUB's internal Secure Boot enforcement only when no TPM is
+# present (see generate_grub.sh comments for full rationale).
+# Detect TPM at runtime: if /sys/class/tpm has entries, a TPM device exists
+# and GRUB's tpm verifier module will handle verification as a pass-through.
+if [[ ! -d /sys/class/tpm ]] || [[ -z "$(ls /sys/class/tpm/ 2>/dev/null)" ]]; then
+    echo "No TPM detected — patching GRUB Secure Boot variable..."
+    sed -i 's/SecureBoot/SecureB00t/' "/boot/efi/EFI/${EFI_BOOT_ID}/grubx64_generated.efi"
+else
+    echo "TPM detected — skipping SecureBoot patch (tpm verifier handles verification)"
+fi
 
 echo "Signing GRUB binary..."
 
