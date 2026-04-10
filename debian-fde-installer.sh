@@ -1788,6 +1788,29 @@ GRUB_GEN_EOF
     done
     log "Kernel images signed"
     
+    # Force GRUB's legacy x86 boot path by invalidating the PE/COFF MZ magic.
+    # GRUB 2.12's EFI linux loader (loader/efi/linux.c) has two code paths:
+    #   Path A: Parse PE header → firmware LoadImage/StartImage (EFI stub)
+    #   Path B: Legacy x86 bzImage loader via GRUB's relocator
+    # Path A crashes on some UEFI firmware (e.g., HP Envy 2014) with
+    # "alloc magic is broken" — heap corruption during EFI memory allocation.
+    # Nullifying the MZ magic ("MZ" at offset 0) makes the PE header check in
+    # grub_arch_efi_linux_load_image_header() fail, causing a clean fallback to
+    # grub_cmd_linux_x86_legacy() which loads the kernel as a standard bzImage.
+    # The legacy path:
+    #   - Still passes full EFI runtime info to the kernel (UEFI fully functional)
+    #   - Is independent of firmware's LoadImage implementation
+    #   - Uses the bzImage setup header at offset 0x202, unaffected by this patch
+    if [[ "$TPM_AVAILABLE" != "yes" ]]; then
+        log "Invalidating kernel PE/COFF magic for legacy GRUB boot path..."
+        for kernel in "${MOUNT_POINT}"/boot/vmlinuz-*; do
+            if [[ -f "$kernel" ]]; then
+                printf '\x00\x00' | dd of="$kernel" bs=1 seek=0 count=2 conv=notrunc 2>/dev/null
+                log "PE magic invalidated: $(basename "$kernel")"
+            fi
+        done
+    fi
+    
     log "Signed GRUB binary created"
 }
 
@@ -1871,6 +1894,15 @@ if [[ -f "${VMLINUZ}" ]]; then
            --output "${VMLINUZ}.signed"
     mv "${VMLINUZ}.signed" "${VMLINUZ}"
     echo "✓ Kernel image signed: ${VMLINUZ}"
+
+    # Force legacy x86 boot path on no-TPM systems (see generate_grub.sh for
+    # full rationale). Invalidate the MZ magic so GRUB's EFI linux loader
+    # falls back to the bzImage path, avoiding firmware LoadImage crashes.
+    if [[ ! -d /sys/class/tpm ]] || [[ -z "$(ls /sys/class/tpm/ 2>/dev/null)" ]]; then
+        echo "Invalidating PE magic for legacy GRUB boot path..."
+        printf '\x00\x00' | dd of="${VMLINUZ}" bs=1 seek=0 count=2 conv=notrunc 2>/dev/null
+        echo "✓ PE magic invalidated: ${VMLINUZ}"
+    fi
 else
     echo "WARNING: kernel image not found at ${VMLINUZ}" >&2
 fi
