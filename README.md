@@ -1,7 +1,27 @@
 # linux-utils
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Shell](https://img.shields.io/badge/shell-bash-green.svg)]()
+
+**Automated full-disk encryption for Debian — LUKS, LVM, Secure Boot, one command.**
+
 Bash scripts for installing and recovering Debian-based systems with Full Disk
 Encryption (LUKS/LVM) and UEFI Secure Boot using custom keys.
+
+## Why?
+
+Setting up full-disk encryption on Linux manually is tedious and error-prone. You need to:
+
+1. Partition correctly for UEFI + LUKS + LVM
+2. Configure GRUB to unlock LUKS at boot
+3. Generate and enroll Secure Boot keys
+4. Set up keyfiles for single-passphrase boot
+5. Harden against cold-boot attacks
+6. Test the recovery path
+
+Miss one step and you either have an unbootable system or a false sense of security.
+
+**linux-utils automates all of this.** One script. One command. Production-grade encryption hardening.
 
 ## Scripts
 
@@ -46,7 +66,7 @@ Installs a Debian-based system with:
 | 7   | **Home directory**       | fscrypt (ext4 native encryption), PAM-integrated auto-unlock                                                             | Per-user data exposure even if root volume is accessed                                    |
 | 8   | **Cold boot / memory**   | Kernel parameter `init_on_free=1` (zeroes freed pages and slab objects)                                                  | Key material lingering in RAM after process exit or reboot                                |
 
-**NOTE:** IT IS VERY IMPORTANT TO SET A BIOS/FIRWARE PASSWORD, AS THE PRIMARY ATTACK SURFACE TO THIS CONFIGURATION IS PHYSICAL ACCESS TO THE MACHINE TO DISABLE SECURE BOOT OR RESET THE FIRMWARE TO ALLOW MALICIOUS BOOTLOADERS.
+**⚠️ IMPORTANT: SET A BIOS/FIRMWARE PASSWORD.** The primary attack surface for this configuration is physical access to disable Secure Boot or reset firmware to allow malicious bootloaders.
 
 **Requirements:** UEFI system, booted from a Debian Live USB as root.
 
@@ -114,3 +134,7 @@ chattr -i /sys/firmware/efi/efivars/{PK,KEK,db,dbx}-*
 - The LUKS passphrase is the last line of defence — use 20+ characters
 - Secure Boot prevents bootloader tampering; it does not protect against
   physical access to unlocked storage
+
+## License
+
+MIT — see [LICENSE](LICENSE).
