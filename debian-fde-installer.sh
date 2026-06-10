@@ -53,6 +53,7 @@ TPM_AVAILABLE="no"
 TPM_VERSION=""
 SECURE_BOOT_STATE="unknown"
 EFI_BOOT_ID="debian" # EFI bootloader-id: 'debian' for Debian/PureOS (strict), 'kali' for Kali
+ERASE_MODE="fast" # Disk erase mode: none, fast, ultrafast, secure
 
 # Get script directory for log file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -288,6 +289,8 @@ check_dependencies() {
         "mokutil"
         "fscrypt"
         "rsync"
+        "nvme-cli"
+        "hdparm"
     )
     
     for pkg in "${required_packages[@]}"; do
@@ -576,6 +579,39 @@ get_installation_params() {
         LUKS_VERSION="luks1"
     fi
 
+    # Disk erase mode selection
+    echo ""
+    info "Disk erase configuration"
+    info "Erase all data on $TARGET_DISK before installation to prevent recovery."
+    echo ""
+    info "  1) none      - Skip erasing (fastest, data may be recoverable)"
+    info "  2) fast      - Single-pass random overwrite (sufficient for most cases)"
+    info "  3) ultrafast - Single-pass zero overwrite (sufficient for most cases)"
+    info "  4) secure    - 3-pass shred+zero (most secure, very slow on large disks)"
+    echo ""
+    read -p "Enter erase mode (1-4, default: 2): " erase_choice
+    erase_choice=${erase_choice:-2}
+
+    case $erase_choice in
+        1)
+            ERASE_MODE="none"
+            ;;
+        2)
+            ERASE_MODE="fast"
+            ;;
+        3)
+            ERASE_MODE="ultrafast"
+            ;;
+        4)
+            ERASE_MODE="secure"
+            ;;
+        *)
+            warning "Invalid choice, using fast"
+            ERASE_MODE="fast"
+            ;;
+    esac
+    info "Erase mode: $ERASE_MODE"
+
     echo ""
     info "Installation Summary:"
     info "Target Disk: $TARGET_DISK"
@@ -585,6 +621,7 @@ get_installation_params() {
     info "EFI Partition Size: ${EFI_SIZE}MB"
     info "Distribution: $DISTRO_NAME"
     info "LUKS Version: $LUKS_VERSION"
+    info "Erase Mode: $ERASE_MODE"
     info "TPM2 Available: $TPM_AVAILABLE"
     info "Timezone: $TIMEZONE"
     info "Locale: $LOCALE"
@@ -597,6 +634,212 @@ get_installation_params() {
         log "Installation cancelled"
         exit 0
     fi
+}
+
+# Detect disk type: hdd, ssd, or nvme
+detect_disk_type() {
+    local disk="$1"
+    local disk_basename
+    disk_basename=$(basename "$disk")
+
+    # NVMe devices
+    if [[ "$disk_basename" == nvme* ]]; then
+        echo "nvme"
+        return
+    fi
+
+    # Check rotational flag: 0 = SSD, 1 = HDD
+    local rotational_file="/sys/block/${disk_basename}/queue/rotational"
+    if [[ -f "$rotational_file" ]]; then
+        local rotational
+        rotational=$(cat "$rotational_file")
+        if [[ "$rotational" -eq 0 ]]; then
+            echo "ssd"
+        else
+            echo "hdd"
+        fi
+    else
+        # Fallback: assume HDD (safest default — always supports overwrite)
+        warning "Cannot detect disk type for $disk, assuming HDD"
+        echo "hdd"
+    fi
+}
+
+# Erase disk data to prevent recovery
+erase_disk() {
+    if [[ "$ERASE_MODE" == "none" ]]; then
+        info "Skipping disk erase (mode: none)"
+        return
+    fi
+
+    local disk_type
+    disk_type=$(detect_disk_type "$TARGET_DISK")
+    local disk_size
+    disk_size=$(blockdev --getsize64 "$TARGET_DISK")
+
+    log "Erasing disk $TARGET_DISK (type: $disk_type, mode: $ERASE_MODE)..."
+    warning "This will irreversibly destroy all data on $TARGET_DISK!"
+
+    case "$disk_type" in
+        hdd)
+            erase_hdd "$disk_size"
+            ;;
+        ssd)
+            erase_ssd
+            ;;
+        nvme)
+            erase_nvme
+            ;;
+    esac
+
+    log "Disk erase complete"
+}
+
+# Erase HDD using overwrite methods
+erase_hdd() {
+    local disk_size="$1"
+    local disk_size_gb=$(( disk_size / 1073741824 ))
+
+    case "$ERASE_MODE" in
+        fast)
+            info "HDD fast erase: single-pass random overwrite (~${disk_size_gb}GB)..."
+            dd if=/dev/urandom of="$TARGET_DISK" bs=4M status=progress conv=fsync 2>&1 || true
+            ;;
+        ultrafast)
+            info "HDD ultrafast erase: single-pass zero overwrite (~${disk_size_gb}GB)..."
+            dd if=/dev/zero of="$TARGET_DISK" bs=4M status=progress conv=fsync 2>&1 || true
+            ;;
+        secure)
+            info "HDD secure erase: 3-pass random + final zero pass (~${disk_size_gb}GB)..."
+            shred -v -n 3 -z "$TARGET_DISK"
+            ;;
+    esac
+
+    # Force kernel to flush and re-read
+    sync
+    blockdev --flushbufs "$TARGET_DISK" 2>/dev/null || true
+}
+
+# Erase SSD using TRIM or ATA secure erase
+erase_ssd() {
+    case "$ERASE_MODE" in
+        fast|ultrafast)
+            info "SSD erase: issuing blkdiscard (TRIM all sectors)..."
+            if blkdiscard "$TARGET_DISK" 2>/dev/null; then
+                log "blkdiscard completed successfully"
+            else
+                warning "blkdiscard failed, falling back to single-pass zero overwrite..."
+                dd if=/dev/zero of="$TARGET_DISK" bs=4M status=progress conv=fsync 2>&1 || true
+                sync
+            fi
+            ;;
+        secure)
+            info "SSD secure erase: attempting ATA Secure Erase..."
+            # Try secure blkdiscard first (issues ATA SECURITY ERASE UNIT)
+            if blkdiscard --secure "$TARGET_DISK" 2>/dev/null; then
+                log "Secure blkdiscard completed successfully"
+            else
+                warning "Secure blkdiscard not supported, attempting hdparm ATA Secure Erase..."
+                local disk_basename
+                disk_basename=$(basename "$TARGET_DISK")
+
+                # Check if drive supports secure erase
+                if hdparm -I "$TARGET_DISK" 2>/dev/null | grep -q "supported: enhanced erase"; then
+                    info "Enhanced secure erase supported, using enhanced mode..."
+                    # Drive must not be frozen
+                    local frozen
+                    frozen=$(hdparm -I "$TARGET_DISK" 2>/dev/null | grep -c "frozen" || true)
+                    if [[ "$frozen" -gt 0 ]] && hdparm -I "$TARGET_DISK" 2>/dev/null | grep -q "not.*frozen"; then
+                        frozen=0
+                    fi
+
+                    if [[ "$frozen" -gt 0 ]]; then
+                        warning "Drive is frozen. Attempting to unfreeze via sleep/wake cycle..."
+                        rtcwake -m mem -s 3 2>/dev/null || true
+                        sleep 2
+                    fi
+
+                    # Set a temporary password and issue secure erase
+                    hdparm --user-master u --security-set-pass erase-tmp "$TARGET_DISK"
+                    hdparm --user-master u --security-erase-enhanced erase-tmp "$TARGET_DISK"
+                    log "ATA enhanced secure erase completed"
+                elif hdparm -I "$TARGET_DISK" 2>/dev/null | grep -q "supported$"; then
+                    info "Standard secure erase supported..."
+                    hdparm --user-master u --security-set-pass erase-tmp "$TARGET_DISK"
+                    hdparm --user-master u --security-erase erase-tmp "$TARGET_DISK"
+                    log "ATA secure erase completed"
+                else
+                    warning "ATA Secure Erase not supported, falling back to 3-pass shred..."
+                    shred -v -n 3 -z "$TARGET_DISK"
+                fi
+            fi
+            ;;
+    esac
+}
+
+# Erase NVMe using NVMe format or sanitize
+erase_nvme() {
+    case "$ERASE_MODE" in
+        fast|ultrafast)
+            info "NVMe erase: issuing blkdiscard (deallocate all blocks)..."
+            if blkdiscard "$TARGET_DISK" 2>/dev/null; then
+                log "blkdiscard completed successfully"
+            else
+                warning "blkdiscard failed, falling back to nvme format..."
+                # NVMe format with User Data Erase (ses=1)
+                local nsid
+                nsid=$(basename "$TARGET_DISK" | grep -oP '\d+$' || echo "1")
+                if nvme format "$TARGET_DISK" --ses=1 --namespace-id="$nsid" --force 2>/dev/null; then
+                    log "NVMe format (User Data Erase) completed"
+                else
+                    warning "nvme format failed, falling back to zero overwrite..."
+                    dd if=/dev/zero of="$TARGET_DISK" bs=4M status=progress conv=fsync 2>&1 || true
+                    sync
+                fi
+            fi
+            ;;
+        secure)
+            info "NVMe secure erase: attempting NVMe sanitize (crypto erase)..."
+            local nsid
+            nsid=$(basename "$TARGET_DISK" | grep -oP '\d+$' || echo "1")
+
+            # Try sanitize first (most thorough — crypto erase)
+            if nvme sanitize "$TARGET_DISK" --sanact=4 2>/dev/null; then
+                log "NVMe sanitize (crypto erase) initiated"
+                info "Waiting for NVMe sanitize to complete..."
+                # Poll sanitize log until completion
+                local retries=0
+                while [[ $retries -lt 120 ]]; do
+                    local progress
+                    progress=$(nvme sanitize-log "$TARGET_DISK" 2>/dev/null | grep -i "progress" || true)
+                    if nvme sanitize-log "$TARGET_DISK" 2>/dev/null | grep -qi "completed"; then
+                        log "NVMe sanitize completed successfully"
+                        break
+                    fi
+                    info "Sanitize in progress... $progress"
+                    sleep 5
+                    retries=$((retries + 1))
+                done
+                if [[ $retries -ge 120 ]]; then
+                    warning "Sanitize polling timed out (10 min) — it may still be running in firmware"
+                fi
+            else
+                warning "NVMe sanitize not supported, attempting NVMe format with crypto erase..."
+                # Crypto erase via format (ses=2)
+                if nvme format "$TARGET_DISK" --ses=2 --namespace-id="$nsid" --force 2>/dev/null; then
+                    log "NVMe format (crypto erase) completed"
+                else
+                    warning "NVMe crypto erase not supported, attempting User Data Erase..."
+                    if nvme format "$TARGET_DISK" --ses=1 --namespace-id="$nsid" --force 2>/dev/null; then
+                        log "NVMe format (User Data Erase) completed"
+                    else
+                        warning "All NVMe erase methods failed, falling back to 3-pass shred..."
+                        shred -v -n 3 -z "$TARGET_DISK"
+                    fi
+                fi
+            fi
+            ;;
+    esac
 }
 
 # Partition disk
@@ -2652,6 +2895,7 @@ main() {
     select_disk
     get_installation_params
     
+    erase_disk
     partition_disk
     setup_encryption
     setup_lvm
@@ -2688,6 +2932,9 @@ main() {
     info "  ✓ UEFI Secure Boot ready"
     info "  ✓ Firewall (UFW) enabled"
     info "  ✓ RAM swiper - Cold boot attack mitigation"
+    if [[ "$ERASE_MODE" != "none" ]]; then
+    info "  ✓ Disk erased before installation (mode: $ERASE_MODE)"
+    fi
     if [[ "$TPM_AVAILABLE" == "yes" ]]; then
     info "  ✓ TPM2 detected — GRUB tpm module records PCR measurements"
     fi
