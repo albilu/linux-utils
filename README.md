@@ -32,6 +32,8 @@ Miss one step and you either have an unbootable system or a false sense of secur
 
 ### Usage
 
+**⚠️ RECOMMENDATION:** Try the scripts in a virtual machine first, before running them on a real/physical machine. They are destructive and will wipe the target disk.
+
 1. Boot from a Debian Live USB as root.
 2. Run the installer script:
     ```bash
