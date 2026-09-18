@@ -141,3 +141,11 @@ chattr -i /sys/firmware/efi/efivars/{PK,KEK,db,dbx}-*
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Keywords
+
+LUKS, cryptsetup, linux disk encryption, luks encryption guide, luks header
+backup, luks keyfile, luks fstab crypttab, luks full disk encryption,
+debian full disk encryption, secure boot, uefi secure boot, lvm on luks,
+grub hardening, linux hardening, debian installer, kali linux encryption,
+chroot recovery, fscrypt, sysadmin, bash.
